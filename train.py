@@ -32,7 +32,7 @@ def tokenize_function(text_list):
         all_tokens.extend(tokens)
     return torch.tensor(all_tokens, dtype=torch.long)
 
-all_tokens = tokenize_function(text)  # Or combine question + answer
+all_tokens = tokenize_function(texts)  # Or combine question + answer
 print(f"Total tokens: {len(all_tokens)}")
 
 # 3. Create sequences (chunks) for language modeling (next token prediction)
