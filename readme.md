@@ -1,23 +1,31 @@
-# LSTM Next Word Prediction
+# Anime Upload Hub (RareToons-style Demo)
 
-A deep learning model that predicts the next word in a sequence using LSTM neural networks.
+This repository now includes a lightweight Flask web app where users can upload anime video files and browse uploaded entries in a card-based layout.
 
-## 📌 What This Project Does
-This model reads questions and answers, learns patterns in the text, and predicts what word should come next. It's like your phone's keyboard suggestions but more advanced.
+## Features
+- Upload anime videos with title and description
+- Basic file type validation (`mp4`, `mkv`, `avi`, `mov`, `webm`)
+- Homepage listing with embedded HTML5 video player
+- JSON-based metadata persistence (`anime_posts.json`)
 
-## 🛠️ Tech Stack
-- **PyTorch** - For building the neural network
-- **LSTM** - Type of neural network good for text
-- **tiktoken** - To convert text to numbers (tokenization)
-- **Pandas & NumPy** - For data handling
+## Project Files
+- `app.py` - Flask server and routes
+- `templates/index.html` - Home listing page
+- `templates/upload.html` - Upload form page
+- `static/styles.css` - Styling
+- `anime_posts.json` - Saved upload metadata
+- `uploads/` - Stored video files
 
-## 📂 Files in This Project
-- `train.py` - Main code to train the model
-- `requirements.txt` - List of required Python packages
-- `README.md` - This documentation file
-
-## 🚀 How to Run
-
-### 1. Install Requirements
+## Run Locally
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+python app.py
+```
+
+Open `http://localhost:5000` in your browser.
+
+## Notes
+- This is a demo app and uses a local JSON file instead of a database.
+- For production, use a proper DB, authentication, and object storage.
