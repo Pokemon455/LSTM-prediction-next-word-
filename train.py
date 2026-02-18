@@ -18,8 +18,7 @@ answers = df["answer"].tolist()  # Use answers for training, or combine question
 texts=[]
 for answer in answers:
     text = re.sub(r'([.,!?:;])\1+', r'\1', answer)
-texts.append(text)
-
+    texts.append(text) 
 # 2. Tokenization using tiktoken (cl100k_base like GPT-4)
 enc = tiktoken.get_encoding("cl100k_base")
 vocab_size = enc.n_vocab
