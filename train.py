@@ -115,7 +115,7 @@ class SimpleLSTMGenerator(nn.Module):
 model = SimpleLSTMGenerator(vocab_size=vocab_size).to(device)
 
 # 5. Optimizer & Loss
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
 criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding if any, else remove ignore_index
 
 # 6. Training Loop
@@ -161,17 +161,20 @@ def generate_text(model, start_text, max_length=100, temperature=0.8):
     model.eval()
     with torch.no_grad():
         tokens = enc.encode(start_text)
-        input_tensor = torch.tensor([tokens]).to(device)
         generated = tokens.copy()
-        
+
         for _ in range(max_length):
+            # Memory fix ✅
+            input_tensor = torch.tensor(
+                [generated[-512:]]
+            ).to(device)
+            
             logits = model(input_tensor)
             logits = logits[:, -1, :] / temperature
             probs = torch.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1).item()
             generated.append(next_token)
-            input_tensor = torch.tensor([generated]).to(device)
-        
+
         return enc.decode(generated)
 
 # Example usage
