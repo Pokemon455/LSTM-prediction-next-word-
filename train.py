@@ -164,18 +164,20 @@ def generate_text(model, start_text, max_length=100, temperature=0.8):
         generated = tokens.copy()
 
         for _ in range(max_length):
-            # Memory fix ✅
+            # Sirf last 512 tokens ✅
             input_tensor = torch.tensor(
                 [generated[-512:]]
             ).to(device)
-            
+
             logits = model(input_tensor)
             logits = logits[:, -1, :] / temperature
             probs = torch.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1).item()
+            next_token = torch.multinomial(
+                probs, num_samples=1
+            ).item()
             generated.append(next_token)
 
-        return enc.decode(generated)
+    return enc.decode(generated)
 
 # Example usage
 sample = generate_text(model, "Hello, how are you", max_length=50)
