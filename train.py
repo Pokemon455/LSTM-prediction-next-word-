@@ -119,12 +119,13 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding if any, else remove ignore_index
 
 # 6. Training Loop
-epochs = 15  ✅
+epochs = 15
+best_loss = float('inf')  # ← Loop se BAHAR ✅
 
 for epoch in range(epochs):
     model.train()
     total_loss = 0.0
-    best_loss = float('inf')
+    # best_loss yahan nahi! ✅
 
     for batch_x, batch_y in dataloader:
         batch_x = batch_x.to(device)
@@ -133,34 +134,27 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         logits = model(batch_x)
         loss = criterion(
-            logits.view(-1, vocab_size), 
+            logits.view(-1, vocab_size),
             batch_y.view(-1)
         )
         loss.backward()
-        
-        # Gradient clipping add kiya ✅
+
         torch.nn.utils.clip_grad_norm_(
             model.parameters(), 1.0
         )
-        
+
         optimizer.step()
         total_loss += loss.item()
 
     avg_loss = total_loss / len(dataloader)
     print(f"Epoch [{epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
-    
-    # Early stopping ✅
+
+    # Early stopping sahi kaam karega ✅
     if avg_loss < best_loss:
         best_loss = avg_loss
         torch.save(model.state_dict(), "best_model.pth")
-    
-# Generation fix ✅
-input_tensor = torch.tensor(
-    [generated[-512:]]
-).to(device)
-    
-    avg_loss = total_loss / len(dataloader)
-    print(f"Epoch [{epoch+1}/{epochs}] - Avg Loss: {avg_loss:.4f}")
+        print(f"Saved! Best: {best_loss:.4f}")
+
 
 # 7. Basic Generation Function (demo)
 def generate_text(model, start_text, max_length=100, temperature=0.8):
