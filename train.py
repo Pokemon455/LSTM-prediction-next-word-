@@ -7,48 +7,45 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import re
 
-# Device setup
+# ─── Device Setup ───────────────────────────────────────────────
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# 1. Load dataset (assume Kaggle path - change if needed)
-df = pd.read_csv("/kaggle/input/chabot-qa-dataset/General_question_answer_dataset.csv")  # Change to your actual CSV path
-# Assuming columns: 'question' and 'answer'
-answers = df["answer"].tolist()  # Use answers for training, or combine question+answer
-texts=[]
+# ─── Load Dataset ───────────────────────────────────────────────
+# Change path if running locally (default: Kaggle)
+df = pd.read_csv("Dataset.csv")
+answers = df["answer"].tolist()
+
+texts = []
 for answer in answers:
     text = re.sub(r'([.,!?:;])\1+', r'\1', answer)
-    texts.append(text) 
-# 2. Tokenization using tiktoken (cl100k_base like GPT-4)
+    texts.append(text)
+
+# ─── Tokenization (GPT-4 tokenizer) ─────────────────────────────
 enc = tiktoken.get_encoding("cl100k_base")
 vocab_size = enc.n_vocab
 print(f"Vocab size: {vocab_size}")
 
-def tokenize_function(text_list):
+def tokenize(text_list):
     all_tokens = []
     for text in text_list:
-        tokens = enc.encode(text)
-        all_tokens.extend(tokens)
+        all_tokens.extend(enc.encode(text))
     return torch.tensor(all_tokens, dtype=torch.long)
 
-all_tokens = tokenize_function(texts)  # Or combine question + answer
+all_tokens = tokenize(texts)
 print(f"Total tokens: {len(all_tokens)}")
 
-# 3. Create sequences (chunks) for language modeling (next token prediction)
-seq_length = 512  # Adjust as per your memory
+# ─── Dataset Class ───────────────────────────────────────────────
+SEQ_LENGTH = 512
 
 class TokenDataset(Dataset):
     def __init__(self, tokens, seq_length):
-        self.seq_length = seq_length
         self.sequences = []
-        
-        # Create overlapping chunks
         for i in range(0, len(tokens) - seq_length):
-            x = tokens[i : i + seq_length]
-            y = tokens[i + 1 : i + seq_length + 1]
+            x = tokens[i: i + seq_length]
+            y = tokens[i + 1: i + seq_length + 1]
             self.sequences.append((x, y))
-        
-        print(f"Total sequences created: {len(self.sequences)}")
+        print(f"Total sequences: {len(self.sequences)}")
 
     def __len__(self):
         return len(self.sequences)
@@ -57,131 +54,84 @@ class TokenDataset(Dataset):
         x, y = self.sequences[idx]
         return torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
 
-dataset = TokenDataset(all_tokens, seq_length)
+dataset = TokenDataset(all_tokens, SEQ_LENGTH)
 dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-# Check dataloader
-for batch_x, batch_y in dataloader:
-    print(f"Batch X shape: {batch_x.shape}")  # [32, 512]
-    print(f"Batch Y shape: {batch_y.shape}")  # [32, 512]
-    break
-
-# 4. Simple LSTM Model
-class SimpleLSTMGenerator(nn.Module):
+# ─── LSTM Model ─────────────────────────────────────────────────
+class LSTMTextGenerator(nn.Module):
     def __init__(self, vocab_size, embed_dim=256, hidden_size=512):
         super().__init__()
-        
-        # Embedding layer
         self.embedding = nn.Embedding(vocab_size, embed_dim)
-        
-        # LSTM - basic
         self.lstm = nn.LSTM(
             input_size=embed_dim,
             hidden_size=hidden_size,
             num_layers=1,
-            batch_first=True,
-            bidirectional=False
+            batch_first=True
         )
-        
-        # Linear layers chain
         self.fc1 = nn.Linear(hidden_size, hidden_size * 2)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.3)
         self.fc2 = nn.Linear(hidden_size * 2, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, vocab_size)  # Output logits for vocab
+        self.fc3 = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, x):
-        # x: [batch, seq_len] -> token ids
-        
-        embedded = self.embedding(x)  # [batch, seq_len, embed_dim]
-        
-        lstm_out, _ = self.lstm(embedded)  # [batch, seq_len, hidden_size]
-        
-        out = lstm_out.reshape(-1, lstm_out.size(-1))  # Flatten to [batch*seq_len, hidden]
-        
+        embedded = self.embedding(x)
+        lstm_out, _ = self.lstm(embedded)
+        out = lstm_out.reshape(-1, lstm_out.size(-1))
         out = self.fc1(out)
         out = self.relu(out)
         out = self.dropout(out)
         out = self.fc2(out)
-        logits = self.fc3(out)  # [batch*seq_len, vocab_size]
-        
-        # Reshape back for loss
-        batch_size, seq_len, _ = lstm_out.shape
-        logits = logits.view(batch_size, seq_len, -1)
-        
-        return logits
+        logits = self.fc3(out)
+        b, s, _ = lstm_out.shape
+        return logits.view(b, s, -1)
 
-# Initialize model
-model = SimpleLSTMGenerator(vocab_size=vocab_size).to(device)
+model = LSTMTextGenerator(vocab_size).to(device)
 
-# 5. Optimizer & Loss
+# ─── Training ────────────────────────────────────────────────────
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
-criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding if any, else remove ignore_index
+criterion = nn.CrossEntropyLoss()
 
-# 6. Training Loop
-epochs = 15
-best_loss = float('inf')  # ← Loop se BAHAR ✅
+EPOCHS = 15
+best_loss = float('inf')
 
-for epoch in range(epochs):
+for epoch in range(EPOCHS):
     model.train()
     total_loss = 0.0
-    # best_loss yahan nahi! ✅
 
     for batch_x, batch_y in dataloader:
-        batch_x = batch_x.to(device)
-        batch_y = batch_y.to(device)
-
+        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
         optimizer.zero_grad()
         logits = model(batch_x)
-        loss = criterion(
-            logits.view(-1, vocab_size),
-            batch_y.view(-1)
-        )
+        loss = criterion(logits.view(-1, vocab_size), batch_y.view(-1))
         loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), 1.0
-        )
-
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         total_loss += loss.item()
 
     avg_loss = total_loss / len(dataloader)
-    print(f"Epoch [{epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
+    print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {avg_loss:.4f}")
 
-    # Early stopping sahi kaam karega ✅
     if avg_loss < best_loss:
         best_loss = avg_loss
         torch.save(model.state_dict(), "best_model.pth")
-        print(f"Saved! Best: {best_loss:.4f}")
+        print(f"  ✅ Saved best model (loss: {best_loss:.4f})")
 
-
-# 7. Basic Generation Function (demo)
-def generate_text(model, start_text, max_length=100, temperature=0.8):
+# ─── Text Generation ─────────────────────────────────────────────
+def generate(prompt, max_tokens=50, temperature=0.8):
     model.eval()
     with torch.no_grad():
-        tokens = enc.encode(start_text)
-        generated = tokens.copy()
-
-        for _ in range(max_length):
-            # Sirf last 512 tokens ✅
-            input_tensor = torch.tensor(
-                [generated[-512:]]
-            ).to(device)
-
-            logits = model(input_tensor)
-            logits = logits[:, -1, :] / temperature
+        tokens = enc.encode(prompt)
+        for _ in range(max_tokens):
+            inp = torch.tensor([tokens[-512:]]).to(device)
+            logits = model(inp)[:, -1, :] / temperature
             probs = torch.softmax(logits, dim=-1)
-            next_token = torch.multinomial(
-                probs, num_samples=1
-            ).item()
-            generated.append(next_token)
+            next_tok = torch.multinomial(probs, 1).item()
+            tokens.append(next_tok)
+    return enc.decode(tokens)
 
-    return enc.decode(generated)
+print("\n--- Sample Output ---")
+print(generate("Hello, how are you", max_tokens=30))
 
-# Example usage
-sample = generate_text(model, "Hello, how are you", max_length=50)
-print("Generated text:", sample)
-
-# Save model (optional)
-torch.save(model.state_dict(), "lstm_language_model.pth")
+torch.save(model.state_dict(), "lstm_model.pth")
+print("\nModel saved as lstm_model.pth")
