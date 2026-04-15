@@ -1,23 +1,40 @@
-# LSTM Next Word Prediction
+# Next Word Prediction with Simple MLP
 
-A deep learning model that predicts the next word in a sequence using LSTM neural networks.
+Ye project ek **simple MLP (Multi-Layer Perceptron)** model train karta hai jo previous words dekh kar next word predict karta hai.
 
-## 📌 What This Project Does
-This model reads questions and answers, learns patterns in the text, and predicts what word should come next. It's like your phone's keyboard suggestions but more advanced.
+## Files
+- `train.py` -> MLP model training script
+- `mlp_model.py` -> model, vocab, inference helpers
+- `app.py` -> Streamlit UI for text generation
+- `Dataset.csv` -> question/answer dataset
 
-## 🛠️ Tech Stack
-- **PyTorch** - For building the neural network
-- **LSTM** - Type of neural network good for text
-- **tiktoken** - To convert text to numbers (tokenization)
-- **Pandas & NumPy** - For data handling
-
-## 📂 Files in This Project
-- `train.py` - Main code to train the model
-- `requirements.txt` - List of required Python packages
-- `README.md` - This documentation file
-
-## 🚀 How to Run
-
-### 1. Install Requirements
+## Setup
 ```bash
 pip install -r requirements.txt
+```
+
+## 1) Train model
+```bash
+python train.py --data-path Dataset.csv --output-dir artifacts --epochs 8
+```
+
+Model artifacts save honge:
+- `artifacts/model.pt`
+- `artifacts/metadata.json`
+
+## 2) Run UI
+```bash
+streamlit run app.py
+```
+
+Browser me prompt do, **Generate** dabao, aur model next words generate karega.
+
+## Optional training args
+```bash
+python train.py \
+  --context-size 3 \
+  --embedding-dim 64 \
+  --hidden-dim 128 \
+  --batch-size 256 \
+  --lr 0.001
+```

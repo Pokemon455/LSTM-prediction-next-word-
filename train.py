@@ -1,187 +1,101 @@
+import argparse
+from pathlib import Path
+
 import pandas as pd
-import tiktoken
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
-import re
+from torch import nn, optim
+from torch.utils.data import DataLoader, TensorDataset, random_split
 
-# Device setup
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# 1. Load dataset (assume Kaggle path - change if needed)
-df = pd.read_csv("/kaggle/input/chabot-qa-dataset/General_question_answer_dataset.csv")  # Change to your actual CSV path
-# Assuming columns: 'question' and 'answer'
-answers = df["answer"].tolist()  # Use answers for training, or combine question+answer
-texts=[]
-for answer in answers:
-    text = re.sub(r'([.,!?:;])\1+', r'\1', answer)
-    texts.append(text) 
-# 2. Tokenization using tiktoken (cl100k_base like GPT-4)
-enc = tiktoken.get_encoding("cl100k_base")
-vocab_size = enc.n_vocab
-print(f"Vocab size: {vocab_size}")
-
-def tokenize_function(text_list):
-    all_tokens = []
-    for text in text_list:
-        tokens = enc.encode(text)
-        all_tokens.extend(tokens)
-    return torch.tensor(all_tokens, dtype=torch.long)
-
-all_tokens = tokenize_function(texts)  # Or combine question + answer
-print(f"Total tokens: {len(all_tokens)}")
-
-# 3. Create sequences (chunks) for language modeling (next token prediction)
-seq_length = 512  # Adjust as per your memory
-
-class TokenDataset(Dataset):
-    def __init__(self, tokens, seq_length):
-        self.seq_length = seq_length
-        self.sequences = []
-        
-        # Create overlapping chunks
-        for i in range(0, len(tokens) - seq_length):
-            x = tokens[i : i + seq_length]
-            y = tokens[i + 1 : i + seq_length + 1]
-            self.sequences.append((x, y))
-        
-        print(f"Total sequences created: {len(self.sequences)}")
-
-    def __len__(self):
-        return len(self.sequences)
-
-    def __getitem__(self, idx):
-        x, y = self.sequences[idx]
-        return torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
-
-dataset = TokenDataset(all_tokens, seq_length)
-dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-
-# Check dataloader
-for batch_x, batch_y in dataloader:
-    print(f"Batch X shape: {batch_x.shape}")  # [32, 512]
-    print(f"Batch Y shape: {batch_y.shape}")  # [32, 512]
-    break
-
-# 4. Simple LSTM Model
-class SimpleLSTMGenerator(nn.Module):
-    def __init__(self, vocab_size, embed_dim=256, hidden_size=512):
-        super().__init__()
-        
-        # Embedding layer
-        self.embedding = nn.Embedding(vocab_size, embed_dim)
-        
-        # LSTM - basic
-        self.lstm = nn.LSTM(
-            input_size=embed_dim,
-            hidden_size=hidden_size,
-            num_layers=1,
-            batch_first=True,
-            bidirectional=False
-        )
-        
-        # Linear layers chain
-        self.fc1 = nn.Linear(hidden_size, hidden_size * 2)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.3)
-        self.fc2 = nn.Linear(hidden_size * 2, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, vocab_size)  # Output logits for vocab
-
-    def forward(self, x):
-        # x: [batch, seq_len] -> token ids
-        
-        embedded = self.embedding(x)  # [batch, seq_len, embed_dim]
-        
-        lstm_out, _ = self.lstm(embedded)  # [batch, seq_len, hidden_size]
-        
-        out = lstm_out.reshape(-1, lstm_out.size(-1))  # Flatten to [batch*seq_len, hidden]
-        
-        out = self.fc1(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc2(out)
-        logits = self.fc3(out)  # [batch*seq_len, vocab_size]
-        
-        # Reshape back for loss
-        batch_size, seq_len, _ = lstm_out.shape
-        logits = logits.view(batch_size, seq_len, -1)
-        
-        return logits
-
-# Initialize model
-model = SimpleLSTMGenerator(vocab_size=vocab_size).to(device)
-
-# 5. Optimizer & Loss
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
-criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding if any, else remove ignore_index
-
-# 6. Training Loop
-epochs = 15
-best_loss = float('inf')  # ← Loop se BAHAR ✅
-
-for epoch in range(epochs):
-    model.train()
-    total_loss = 0.0
-    # best_loss yahan nahi! ✅
-
-    for batch_x, batch_y in dataloader:
-        batch_x = batch_x.to(device)
-        batch_y = batch_y.to(device)
-
-        optimizer.zero_grad()
-        logits = model(batch_x)
-        loss = criterion(
-            logits.view(-1, vocab_size),
-            batch_y.view(-1)
-        )
-        loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), 1.0
-        )
-
-        optimizer.step()
-        total_loss += loss.item()
-
-    avg_loss = total_loss / len(dataloader)
-    print(f"Epoch [{epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
-
-    # Early stopping sahi kaam karega ✅
-    if avg_loss < best_loss:
-        best_loss = avg_loss
-        torch.save(model.state_dict(), "best_model.pth")
-        print(f"Saved! Best: {best_loss:.4f}")
+from mlp_model import (
+    NextWordMLP,
+    TrainingConfig,
+    build_vocab,
+    create_training_examples,
+    save_artifacts,
+)
 
 
-# 7. Basic Generation Function (demo)
-def generate_text(model, start_text, max_length=100, temperature=0.8):
-    model.eval()
-    with torch.no_grad():
-        tokens = enc.encode(start_text)
-        generated = tokens.copy()
+def train(args: argparse.Namespace) -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
-        for _ in range(max_length):
-            # Sirf last 512 tokens ✅
-            input_tensor = torch.tensor(
-                [generated[-512:]]
-            ).to(device)
+    df = pd.read_csv(args.data_path)
+    texts = (df["question"].fillna("") + " " + df["answer"].fillna("")).tolist()
 
-            logits = model(input_tensor)
-            logits = logits[:, -1, :] / temperature
-            probs = torch.softmax(logits, dim=-1)
-            next_token = torch.multinomial(
-                probs, num_samples=1
-            ).item()
-            generated.append(next_token)
+    config = TrainingConfig(
+        context_size=args.context_size,
+        embedding_dim=args.embedding_dim,
+        hidden_dim=args.hidden_dim,
+    )
 
-    return enc.decode(generated)
+    vocab, _ = build_vocab(texts, min_freq=args.min_freq)
+    x, y = create_training_examples(texts, vocab, context_size=config.context_size)
+    dataset = TensorDataset(x, y)
 
-# Example usage
-sample = generate_text(model, "Hello, how are you", max_length=50)
-print("Generated text:", sample)
+    val_size = int(len(dataset) * args.val_split)
+    train_size = len(dataset) - val_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-# Save model (optional)
-torch.save(model.state_dict(), "lstm_language_model.pth")
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size)
+
+    model = NextWordMLP(
+        vocab_size=len(vocab),
+        context_size=config.context_size,
+        embedding_dim=config.embedding_dim,
+        hidden_dim=config.hidden_dim,
+    ).to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
+    best_val_loss = float("inf")
+    output_dir = Path(args.output_dir)
+
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        running_loss = 0.0
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            optimizer.zero_grad()
+            logits = model(xb)
+            loss = criterion(logits, yb)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+
+        train_loss = running_loss / max(1, len(train_loader))
+
+        model.eval()
+        val_running_loss = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                logits = model(xb)
+                loss = criterion(logits, yb)
+                val_running_loss += loss.item()
+
+        val_loss = val_running_loss / max(1, len(val_loader))
+        print(f"Epoch {epoch}/{args.epochs} - train_loss={train_loss:.4f} val_loss={val_loss:.4f}")
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            save_artifacts(model, vocab, config, output_dir)
+            print(f"Saved best model to {output_dir} (val_loss={best_val_loss:.4f})")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train a simple MLP for next-word prediction")
+    parser.add_argument("--data-path", default="Dataset.csv")
+    parser.add_argument("--output-dir", default="artifacts")
+    parser.add_argument("--epochs", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--context-size", type=int, default=3)
+    parser.add_argument("--embedding-dim", type=int, default=64)
+    parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument("--min-freq", type=int, default=1)
+    parser.add_argument("--val-split", type=float, default=0.1)
+
+    args = parser.parse_args()
+    train(args)

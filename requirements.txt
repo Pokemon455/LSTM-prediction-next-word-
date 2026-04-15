@@ -1,4 +1,4 @@
 torch
-tiktoken
 pandas
 numpy
+streamlit
