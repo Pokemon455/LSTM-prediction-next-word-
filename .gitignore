@@ -1,8 +1,12 @@
 # Python
 __pycache__/
 *.py[cod]
+
+# Model weights (ignore by default, use !best_model.pth to include)
 *.pth
 *.pt
+!best_model.pth
+!lstm_model.pth
 
 # Jupyter
 .ipynb_checkpoints/
@@ -10,7 +14,19 @@ __pycache__/
 # Env
 .env
 venv/
+.venv/
 
 # Data
 *.csv
 !Dataset.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Kaggle
+kaggle.json
